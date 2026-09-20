@@ -1,64 +1,43 @@
-"use client";
-
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { registerAction } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/forms";
 
-export default function RegisterPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setPending(true);
-    setError(null);
-    const res = await fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, username, displayName, password }),
-    });
-    const data = await res.json();
-    setPending(false);
-    if (!res.ok) {
-      setError(data.error || "Could not register");
-      return;
-    }
-    router.replace("/rooms");
-  }
-
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
       <h1 className="text-3xl font-semibold">Create your Harbor account</h1>
-      <form onSubmit={onSubmit} className="mt-8 space-y-4 rounded-2xl bg-card p-6 shadow-sm">
+      <form action={registerAction} method="post" className="mt-8 space-y-4 rounded-2xl bg-card p-6 shadow-sm">
         <div>
-          <Label>Email</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" required />
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" name="email" type="email" className="mt-1" required />
         </div>
         <div>
-          <Label>Username</Label>
-          <Input value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1" required />
+          <Label htmlFor="username">Username</Label>
+          <Input id="username" name="username" className="mt-1" required />
         </div>
         <div>
-          <Label>Display name</Label>
-          <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="mt-1" />
+          <Label htmlFor="displayName">Display name</Label>
+          <Input id="displayName" name="displayName" className="mt-1" />
         </div>
         <div>
-          <Label>Password (8+ characters)</Label>
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1" required />
+          <Label htmlFor="password">Password (8+ characters)</Label>
+          <Input id="password" name="password" type="password" className="mt-1" required />
         </div>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
-        <Button size="wide" disabled={pending}>
-          {pending ? "Creating…" : "Create account"}
+        <Button type="submit" size="wide">
+          Create account
         </Button>
         <p className="text-center text-sm text-muted-foreground">
-          Already have an account? <Link className="text-accent" href="/login">Sign in</Link>
+          Already have an account?{" "}
+          <Link className="text-accent" href="/login">
+            Sign in
+          </Link>
         </p>
       </form>
     </main>
