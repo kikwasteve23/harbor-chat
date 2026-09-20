@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { logoutAction, sendMessageAction } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Badge, Input, Textarea } from "@/components/ui/forms";
-import { cn, formatDay, formatTime, initials } from "@/lib/utils";
+import { cn, formatDay, formatTime, initials, avatarColor } from "@/lib/utils";
 
 type User = {
   id: string;
@@ -121,7 +121,15 @@ export function ChatApp({
       const p = JSON.parse((ev as MessageEvent).data);
       setTyping((prev) => prev.filter((t) => t.actorId !== p.actorId));
     });
-    es.addEventListener("presence_update", () => {
+    es.addEventListener("presence_update", (ev) => {
+      try {
+        const p = JSON.parse((ev as MessageEvent).data);
+        if (typeof p.onlineCount === "number") {
+          setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, onlineCount: p.onlineCount } : r)));
+        }
+      } catch {
+        /* ignore */
+      }
       void fetch("/api/rooms")
         .then((r) => r.json())
         .then((d) => setRooms(d.rooms ?? []));
@@ -272,9 +280,7 @@ export function ChatApp({
                 {room?.roomType === "private" ? <Badge>Private</Badge> : <Badge tone="ok">Public</Badge>}
               </div>
               <div className="text-xs text-muted-foreground">
-                {room
-                  ? `${room.onlineCount} online · ${room.activityState} · topic: ${room.currentTopic?.name ?? "none"}`
-                  : "Join a conversation"}
+                {room ? `${room.onlineCount} online` : "Join a conversation"}
               </div>
             </div>
           </div>
@@ -290,7 +296,7 @@ export function ChatApp({
                 <div className="py-20 text-center text-muted-foreground">Choose a room to start chatting.</div>
               ) : messages.length === 0 ? (
                 <div className="mx-auto max-w-md rounded-2xl bg-card/80 p-6 text-center text-sm text-muted-foreground">
-                  This room is quiet. Human messages are prioritized. AI participants may join later — they are always labeled AI.
+                  No messages yet. Say hello — people are around.
                 </div>
               ) : (
                 grouped.map((g) => (
@@ -299,9 +305,17 @@ export function ChatApp({
                     <div className="space-y-2">
                       {g.items.map((m) => {
                         const mine = m.senderUserId === user.id;
-                        const ai = m.sender.kind === "ai";
+                        const name = mine ? "You" : m.sender.displayName || "Member";
                         return (
-                          <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                          <div key={m.id} className={cn("flex gap-2", mine ? "justify-end" : "justify-start")}>
+                            {!mine ? (
+                              <span
+                                className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                                style={{ background: avatarColor(name) }}
+                              >
+                                {initials(name)}
+                              </span>
+                            ) : null}
                             <div
                               className={cn(
                                 "max-w-[min(100%,520px)] rounded-2xl px-3 py-2 shadow-sm",
@@ -309,8 +323,7 @@ export function ChatApp({
                               )}
                             >
                               <div className="mb-0.5 flex items-center gap-2 text-[11px]">
-                                <span className="font-semibold">{mine ? "You" : m.sender.displayName}</span>
-                                {ai ? <Badge tone="ai">{m.sender.aiDisclosureLabel || "AI"}</Badge> : null}
+                                <span className="font-semibold">{name}</span>
                                 <span className="text-muted-foreground">{formatTime(m.createdAt)}</span>
                                 <button type="button" className="text-muted-foreground hover:text-danger" onClick={() => report(m.id)}>
                                   Report
@@ -329,7 +342,7 @@ export function ChatApp({
                 <div className="text-xs text-muted-foreground">
                   {typing
                     .slice(0, 2)
-                    .map((t) => `${t.displayName}${t.isAi ? " (AI)" : ""}`)
+                    .map((t) => t.displayName)
                     .join(", ")}{" "}
                   typing…
                 </div>
@@ -365,21 +378,28 @@ export function ChatApp({
             <aside className="hidden w-72 overflow-y-auto border-l border-border bg-sidebar p-4 md:block">
               <div className="text-sm font-semibold">Room info</div>
               <p className="mt-2 text-sm text-muted-foreground">{room?.description}</p>
-              <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Participants</div>
+              <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Online — {room?.onlineCount ?? 0}
+              </div>
               <ul className="mt-2 space-y-2">
-                {participants.map((p) => (
+                {participants.slice(0, 40).map((p) => (
                   <li key={`${p.kind}-${p.id}`} className="flex items-center justify-between gap-2 text-sm">
                     <span className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-[11px]">
+                      <span
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                        style={{ background: avatarColor(p.displayName) }}
+                      >
                         {initials(p.displayName)}
                       </span>
                       {p.displayName}
-                      {p.isAi ? <Badge tone="ai">AI</Badge> : null}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{p.presence}</span>
                   </li>
                 ))}
               </ul>
+              {participants.length > 40 ? (
+                <p className="mt-2 text-xs text-muted-foreground">+{participants.length - 40} more in this room</p>
+              ) : null}
             </aside>
           ) : null}
         </div>

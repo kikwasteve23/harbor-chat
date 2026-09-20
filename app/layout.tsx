@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Harbor Chat",
-  description: "A community messenger with clearly labeled AI participants grounded in your documentation.",
+  description: "Harbor community messenger.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

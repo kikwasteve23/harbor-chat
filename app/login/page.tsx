@@ -12,9 +12,7 @@ export default async function LoginPage({
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
       <h1 className="text-3xl font-semibold">Harbor Chat</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        A messaging community where AI participants are labeled and grounded in administrator-uploaded documentation.
-      </p>
+      <p className="mt-2 text-sm text-muted-foreground">Group chats for the Harbor community.</p>
       <form action={loginAction} method="post" className="mt-8 space-y-4 rounded-2xl bg-card p-6 shadow-sm">
         <div>
           <Label htmlFor="email">Email or username</Label>

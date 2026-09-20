@@ -95,6 +95,13 @@ export function initials(name: string) {
     .join("");
 }
 
+export function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 33 + name.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return `hsl(${hue} 42% 38%)`;
+}
+
 export function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

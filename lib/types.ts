@@ -160,6 +160,7 @@ export interface RoomConversationState {
   conversationSummary: string;
   unresolvedQuestions: string[];
   topicHistory: string[];
+  displayedOnlineCount: number;
   updatedAt: string;
 }
 
@@ -226,6 +227,8 @@ export interface PlatformSettings {
   blockedPhrases: string[];
   columnMap: Record<string, string>;
   personaImportConfirmed: boolean;
+  minDisplayedOnline: number;
+  maxDisplayedOnline: number;
 }
 
 export interface PersonaMemory {
@@ -275,20 +278,20 @@ export interface StoreShape {
 }
 
 export const defaultSettings = (): PlatformSettings => ({
-  maxActiveAiPerRoom: 8,
+  maxActiveAiPerRoom: 80,
   inactivityThresholdMinutes: 60,
   inactivityWarningMinutes: 45,
   relatedTopicProbability: 0.7,
   newTopicProbability: 0.3,
   typingDelayMinMs: 700,
   typingDelayMaxMs: 6500,
-  maxBotResponseChars: 420,
+  maxBotResponseChars: 280,
   aiParticipationIntensity: 0.55,
   quietHoursStart: null,
   quietHoursEnd: null,
   aiProvider: process.env.AI_PROVIDER || "mock",
   aiModel: process.env.AI_MODEL || "gpt-4o-mini",
-  temperature: 0.7,
+  temperature: 0.8,
   maxAiResponsesPerEvent: 2,
   speakerCooldownSeconds: 45,
   personaReassignmentHours: 12,
@@ -309,4 +312,6 @@ export const defaultSettings = (): PlatformSettings => ({
     activity_level: "activity_level",
   },
   personaImportConfirmed: false,
+  minDisplayedOnline: 70,
+  maxDisplayedOnline: 148,
 });

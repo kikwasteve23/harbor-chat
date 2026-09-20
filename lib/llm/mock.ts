@@ -1,11 +1,5 @@
 import type { LlmProvider, LlmRequest, LlmResult } from "./types";
 
-const closers = [
-  "that's documented in the knowledge base",
-  "that's how the current docs describe it",
-  "worth checking the uploaded docs if you need the exact wording",
-];
-
 function hashString(s: string) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
@@ -19,68 +13,73 @@ function pick(seed: number, items: string[]) {
 function extractKnowledge(messages: LlmRequest["messages"]) {
   const blob = messages.map((m) => m.content).join("\n");
   const knowledgeMatch = blob.match(/KNOWLEDGE BASE[\s\S]*?(?=\n[A-Z ]{6,}|\nCURRENT|\nRECENT|$)/i);
-  const personaMatch = blob.match(/PERSONA[\s\S]*?(?=\n[A-Z ]{6,}|$)/i);
+  const personaMatch = blob.match(/name:\s*(.+)/i);
   const humanMatch = blob.match(/HUMAN MESSAGE:\s*([\s\S]+?)(?:\n[A-Z]|$)/i);
   const topicMatch = blob.match(/CURRENT TOPIC:\s*(.+)/i);
   return {
     knowledge: knowledgeMatch?.[0] ?? "",
-    persona: personaMatch?.[0] ?? "",
+    persona: personaMatch?.[1] ?? "",
     human: humanMatch?.[1]?.trim() ?? "",
     topic: topicMatch?.[1]?.trim() ?? "",
     blob,
   };
 }
 
-function stylePrefix(persona: string) {
-  const p = persona.toLowerCase();
-  if (p.includes("curious") || p.includes("beginner")) return "Quick question from my side —";
-  if (p.includes("practical") || p.includes("experienced")) return "Practical take:";
-  if (p.includes("analytical")) return "If I compare what's documented,";
-  if (p.includes("enthusiastic")) return "This part of the docs is actually useful:";
-  if (p.includes("calm") || p.includes("reserved")) return "From the docs:";
-  return "";
+function factLine(knowledge: string, seed: number) {
+  const lines = knowledge
+    .split("\n")
+    .map((l) => l.replace(/^[-*#\d.\s]+/, "").replace(/KNOWLEDGE BASE/i, "").trim())
+    .filter((l) => l.length > 28 && l.length < 220);
+  if (!lines.length) return null;
+  return lines[seed % lines.length]!;
 }
 
 export const mockProvider: LlmProvider = {
   name: "mock",
   async generate(req: LlmRequest): Promise<LlmResult> {
-    const { knowledge, persona, human, topic, blob } = extractKnowledge(req.messages);
-    const seed = hashString(blob + String(Date.now()).slice(0, -4));
-    const lines = knowledge
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 40 && !l.startsWith("KNOWLEDGE"));
-    const factual = /how|what|when|where|eligib|policy|pay|earn|deadline|procedure|feature|rule/i.test(
-      human,
-    );
+    const { knowledge, human, topic, blob } = extractKnowledge(req.messages);
+    const seed = hashString(blob + String(Date.now()).slice(0, -3));
+    const fact = factLine(knowledge, seed);
+    const factual = /[?]|how|what|when|where|join|private|pay|earn|eligib|policy|feature|step/i.test(human);
+
     let text: string;
-    if (factual && lines.length === 0) {
-      text =
-        "I don't see that documented in the current knowledge base, so I shouldn't guess. Check the official Harbor docs or ask a moderator for the written policy.";
-    } else if (lines.length === 0) {
-      const topicBit = topic ? ` around ${topic}` : "";
+    if (factual && fact) {
       text = pick(seed, [
-        `Been thinking about the current thread${topicBit}. Happy to keep it going if anyone wants to compare notes.`,
-        `Quiet minute here. If we're still on this topic, the docs are the source of truth — I won't invent details.`,
-        `I'll leave space for humans on this one. Ping if you want a pointer into the uploaded documentation.`,
+        fact,
+        `Yeah — ${fact.charAt(0).toLowerCase()}${fact.slice(1)}`,
+        `From what I remember: ${fact}`,
+        `${fact} That's the version I go by.`,
+      ]);
+    } else if (factual && !fact) {
+      text = pick(seed, [
+        "Not sure that's written down anywhere official. I'd ask a moderator before treating it as a rule.",
+        "I wouldn't guess on that one. Check the room info or ping an admin.",
+        "Can't confirm that from what we have here.",
+      ]);
+    } else if (fact) {
+      text = pick(seed, [
+        fact.length > 140 ? `${fact.slice(0, 140).trim()}…` : fact,
+        `Makes sense. ${fact.split(".")[0]}.`,
+        topic ? `We've been on ${topic} for a bit — ${fact.split(".")[0].toLowerCase()}.` : fact,
+        "Same. I'm mostly lurking unless someone has a concrete question.",
+        "lol yeah. Keep it in the thread so people joining later can catch up.",
       ]);
     } else {
-      const snippet = lines[seed % lines.length]!.replace(/^[-*#\d.\s]+/, "").slice(0, 220);
-      const prefix = stylePrefix(persona);
-      if (factual) {
-        text = `${prefix ? `${prefix} ` : ""}${snippet} If a number, deadline, or eligibility rule isn't in that excerpt, it isn't something I can confirm.`;
-      } else {
-        text = `${prefix ? `${prefix} ` : ""}${snippet} ${pick(seed + 3, closers)}.`;
-      }
+      text = pick(seed, [
+        "Anyone still around for this?",
+        "I'll be in and out — drop a question if you get stuck.",
+        "Quiet in here. Morning crowd usually picks up later.",
+        topic ? `Was thinking about ${topic} again. Anyone tried the steps yet?` : "What's everyone working on today?",
+        "Leaving this here and grabbing coffee. Back in a bit.",
+      ]);
     }
+
     text = text.replace(/\s+/g, " ").trim();
-    if (text.length > 420) text = `${text.slice(0, 419).trim()}…`;
-    const promptTokens = Math.ceil(blob.length / 4);
-    const completionTokens = Math.ceil(text.length / 4);
+    if (text.length > 280) text = `${text.slice(0, 279).trimEnd()}…`;
     return {
       text,
-      promptTokens,
-      completionTokens,
+      promptTokens: Math.ceil(blob.length / 4),
+      completionTokens: Math.ceil(text.length / 4),
       provider: "mock",
       model: req.model || "mock-grounded",
     };

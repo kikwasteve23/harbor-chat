@@ -21,6 +21,7 @@ import {
 } from "./services/orchestrator";
 import { parsePersonaWorkbook, toPoolRecords } from "./services/persona-import";
 import { eligiblePoolRecords, pickUniquePersonas } from "./services/persona-import";
+import { floorOnlineCount, nextDisplayedOnline } from "./services/presence";
 import type {
   AiPersona,
   KnowledgeChunk,
@@ -188,10 +189,14 @@ export function presenceForRoom(roomId: string, s = loadStore()) {
     const mins = minutesSince(p.lastSeenAt);
     return mins < 8 && s.members.some((m) => m.roomId === roomId && m.userId === p.id);
   }).length;
-  const ai = s.assignments.filter(
+  const presentMembers = s.assignments.filter(
     (a) => a.roomId === roomId && !a.activeUntil && a.presence !== "offline",
   ).length;
-  return { humans, ai, onlineCount: humans + ai };
+  const conv = s.conversation.find((c) => c.roomId === roomId);
+  const stored = conv?.displayedOnlineCount ?? 0;
+  const min = s.settings.minDisplayedOnline || 70;
+  const onlineCount = Math.max(min, floorOnlineCount(stored), humans + presentMembers);
+  return { humans, ai: presentMembers, onlineCount };
 }
 
 export function listMessages(roomId: string, limit = 80) {
@@ -209,14 +214,10 @@ function hydrateMessage(m: Message, s: StoreShape) {
       ? { kind: "human" as const, ...publicProfile(user) }
       : persona
         ? {
-            kind: "ai" as const,
+            kind: "member" as const,
             id: persona.id,
             displayName: persona.displayName,
-            username: persona.sourcePersonaId,
-            isAi: true,
-            aiDisclosureLabel: persona.aiDisclosureLabel,
-            personality: persona.personality,
-            region: persona.region,
+            username: persona.displayName.replace(/\s+/g, "").toLowerCase(),
           }
         : { kind: "system" as const, displayName: "System" },
   };
@@ -394,12 +395,14 @@ function retrieveKnowledge(query: string, limit = 5) {
 
 function ensureRoomPersonas(roomId: string) {
   mutateStore((s) => {
-    const desired = Math.min(s.settings.maxActiveAiPerRoom, Math.max(5, Math.min(8, s.personaPool.length)));
+    if (s.settings.maxActiveAiPerRoom < 72) s.settings.maxActiveAiPerRoom = 80;
+    if (!s.settings.minDisplayedOnline) s.settings.minDisplayedOnline = 70;
+    const desired = Math.min(s.personaPool.length, Math.max(72, s.settings.maxActiveAiPerRoom));
     const active = s.assignments.filter((a) => a.roomId === roomId && !a.activeUntil);
     const assignedPool = new Set(
       active.map((a) => s.aiPersonas.find((p) => p.id === a.personaId)?.poolRecordId),
     );
-    const needed = Math.max(0, Math.min(s.settings.maxActiveAiPerRoom, desired) - active.length);
+    const needed = Math.max(0, desired - active.length);
     const recentSource = s.assignments
       .filter((a) => a.roomId === roomId)
       .map((a) => ({
@@ -422,7 +425,7 @@ function ensureRoomPersonas(roomId: string) {
         activeUntil: null,
         activityState: "quiet",
         lastActiveAt: null,
-        presence: Math.random() < 0.7 ? "online" : "idle",
+        presence: Math.random() < 0.88 ? "online" : Math.random() < 0.7 ? "idle" : "away",
         presenceJitter: Math.random(),
       });
       s.botEvents.push({
@@ -451,6 +454,7 @@ function ensureRoomPersonas(roomId: string) {
         conversationSummary: "Development room waiting for conversation.",
         unresolvedQuestions: [],
         topicHistory: topic ? [topic.id] : [],
+        displayedOnlineCount: 70 + Math.floor(Math.random() * 28),
         updatedAt: nowIso(),
       });
     }
@@ -533,24 +537,19 @@ async function generatePersonaReply(opts: {
     })
     .join("\n");
 
-  const system = `You are an AI participant in Harbor Chat. You MUST be clearly an AI persona simulation, never a real person.
-Persona name: ${opts.persona.displayName} (always labeled AI)
+  const system = `You are ${opts.persona.displayName}, a member of this Harbor group chat.
 Region: ${opts.persona.region}
 Experience: ${opts.persona.experienceLevel}
 Personality: ${opts.persona.personality}
 Style: ${opts.persona.communicationStyle}
-Knowledge: ${opts.persona.knowledgeLevel}
 
-Rules:
-- Stay short or medium. Natural chat, not an essay.
-- Do not invent platform features, payments, earnings, eligibility, policies, procedures, deadlines, or guarantees.
-- If it is not in KNOWLEDGE BASE, say it is not documented and point to official docs/support.
-- Do not claim personal real-world financial success.
-- Do not impersonate humans or invent that a real person said something.
-- Avoid agreement loops, ending every line with a question, and excessive emoji.
-- Current intent: ${opts.intent}
-- Current topic: ${topic?.name ?? "none"} — ${topic?.description ?? ""}
-- Conversation summary: ${conv?.conversationSummary ?? ""}`;
+Write like a real person in WhatsApp/Telegram: short, informal, specific.
+Do not mention being a bot, an AI, a simulation, or a language model.
+Do not invent payments, earnings, guarantees, or undocumented policy.
+If you don't know, say you're not sure and that an admin would know.
+Skip essay tone, "as an AI", and knowledge-base jargon.
+Current topic: ${topic?.name ?? "general"} — ${topic?.description ?? ""}
+Recent summary: ${conv?.conversationSummary ?? ""}`;
 
   const user = `KNOWLEDGE BASE
 ${chunks.map((c) => `- ${c.title}: ${c.content}`).join("\n") || "(empty — refuse platform specifics)"}
@@ -608,7 +607,7 @@ async function emitAiMessage(roomId: string, personaId: string, content: string,
   publish({
     type: "typing_start",
     roomId,
-    payload: { actorId: personaId, isAi: true, displayName: persona.displayName, aiDisclosureLabel: "AI" },
+    payload: { actorId: personaId, displayName: persona.displayName },
   });
   await sleep(duration);
   mutateStore((st) => {
@@ -758,10 +757,15 @@ export function wanderPresence() {
     for (const a of s.assignments) {
       if (a.activeUntil) continue;
       const roll = Math.random();
-      if (roll < 0.04) a.presence = "away";
-      else if (roll < 0.1) a.presence = "idle";
-      else if (roll < 0.16) a.presence = "offline";
-      else if (roll < 0.55) a.presence = "online";
+      if (roll < 0.82) a.presence = "online";
+      else if (roll < 0.93) a.presence = "idle";
+      else if (roll < 0.98) a.presence = "away";
+      else a.presence = "offline";
+    }
+    for (const conv of s.conversation) {
+      const humans = s.profiles.filter((p) => minutesSince(p.lastSeenAt) < 8).length;
+      conv.displayedOnlineCount = nextDisplayedOnline(conv.displayedOnlineCount || 82, humans);
+      conv.updatedAt = nowIso();
     }
   });
   for (const room of loadStore().rooms) {
@@ -771,6 +775,28 @@ export function wanderPresence() {
       payload: presenceForRoom(room.id),
     });
   }
+}
+
+export async function expandLiveCommunity() {
+  const excelPath = path.join(process.cwd(), "seed", "personas.xlsx");
+  const s = loadStore();
+  if (s.personaPool.length < 70 && fs.existsSync(excelPath) && s.profiles[0]) {
+    await importPersonasFromBuffer(fs.readFileSync(excelPath), s.profiles[0].id, true);
+  }
+  mutateStore((st) => {
+    if (st.settings.maxActiveAiPerRoom < 72) st.settings.maxActiveAiPerRoom = 80;
+    st.settings.minDisplayedOnline = Math.max(70, st.settings.minDisplayedOnline || 70);
+  });
+  for (const room of loadStore().rooms) {
+    ensureRoomPersonas(room.id);
+  }
+  mutateStore((st) => {
+    for (const conv of st.conversation) {
+      if (!conv.displayedOnlineCount || conv.displayedOnlineCount < 70) {
+        conv.displayedOnlineCount = 70 + Math.floor(Math.random() * 25);
+      }
+    }
+  });
 }
 
 export async function tickActivity() {
@@ -1070,24 +1096,21 @@ export function participants(roomId: string) {
       displayName: p!.displayName,
       username: p!.username,
       presence: minutesSince(p!.lastSeenAt) < 8 ? "online" : "offline",
-      isAi: false,
     }));
   const ais = s.assignments
     .filter((a) => a.roomId === roomId && !a.activeUntil)
     .map((a) => {
       const p = s.aiPersonas.find((x) => x.id === a.personaId);
       return {
-        kind: "ai" as const,
+        kind: "member" as const,
         id: a.personaId,
-        displayName: p?.displayName ?? "AI",
-        username: p?.sourcePersonaId ?? "ai",
+        displayName: p?.displayName ?? "Member",
+        username: p?.displayName?.replace(/\s+/g, "").toLowerCase() ?? "member",
         presence: a.presence,
-        isAi: true,
-        aiDisclosureLabel: p?.aiDisclosureLabel ?? "AI",
-        personality: p?.personality,
       };
     });
-  return [...humans, ...ais];
+  const rank = (p: string) => (p === "online" ? 0 : p === "idle" || p === "typing" ? 1 : p === "away" ? 2 : 3);
+  return [...humans, ...ais].sort((a, b) => rank(a.presence) - rank(b.presence) || a.displayName.localeCompare(b.displayName));
 }
 
 export { sampleN };
