@@ -32,11 +32,39 @@ function emptyStore(): StoreShape {
 
 let memory: StoreShape | null = null;
 let writeChain: Promise<void> = Promise.resolve();
+let initPromise: Promise<void> | null = null;
 
 function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const uploads = path.join(DATA_DIR, "uploads");
   if (!fs.existsSync(uploads)) fs.mkdirSync(uploads, { recursive: true });
+}
+
+export async function initStore() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      const { usesPostgres, migratePostgres, loadFromPostgres } = await import("./db/postgres");
+      if (usesPostgres()) {
+        await migratePostgres();
+        const fromDb = await loadFromPostgres();
+        memory = fromDb ?? emptyStore();
+        return;
+      }
+      ensureDir();
+      if (fs.existsSync(STORE_PATH)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(STORE_PATH, "utf8")) as StoreShape;
+          memory = { ...emptyStore(), ...parsed, settings: { ...defaultSettings(), ...parsed.settings } };
+          return;
+        } catch {
+          memory = emptyStore();
+          return;
+        }
+      }
+      memory = emptyStore();
+    })();
+  }
+  await initPromise;
 }
 
 export function loadStore(): StoreShape {
@@ -60,13 +88,14 @@ export function saveStore(next?: StoreShape) {
   if (next) memory = next;
   const snapshot = loadStore();
   ensureDir();
-  const payload = JSON.stringify(snapshot, null, 2);
-  writeChain = writeChain.then(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        fs.writeFile(STORE_PATH, payload, (err) => (err ? reject(err) : resolve()));
-      }),
-  );
+  writeChain = writeChain.then(async () => {
+    const { usesPostgres, saveToPostgres } = await import("./db/postgres");
+    if (usesPostgres()) {
+      await saveToPostgres(snapshot);
+      return;
+    }
+    await fs.promises.writeFile(STORE_PATH, JSON.stringify(snapshot, null, 2));
+  });
   return writeChain;
 }
 

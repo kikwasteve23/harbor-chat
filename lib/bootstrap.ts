@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hashPassword } from "./auth";
 import { expandLiveCommunity, ingestDocument, importPersonasFromBuffer } from "./platform";
-import { mutateStore, loadStore } from "./store";
+import { mutateStore, loadStore, initStore } from "./store";
 import { nowIso } from "./utils";
 
 function id() {
@@ -10,6 +10,7 @@ function id() {
 }
 
 export async function bootstrapIfNeeded() {
+  await initStore();
   const s = loadStore();
   if (!(s.seeded && s.profiles.length > 0)) {
     const adminEmail = process.env.DEMO_ADMIN_EMAIL || "admin@harbor.local";
@@ -199,5 +200,11 @@ export async function bootstrapIfNeeded() {
   }
 
   await expandLiveCommunity();
+  try {
+    const { usesPostgres, syncPostgresMirrors } = await import("./db/postgres");
+    if (usesPostgres()) await syncPostgresMirrors(loadStore());
+  } catch (err) {
+    console.error("postgres mirror sync", err);
+  }
   return { seeded: true };
 }

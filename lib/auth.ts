@@ -51,6 +51,7 @@ export async function setSessionCookie(token: string) {
   jar.set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.APP_URL?.startsWith("https://") ?? false,
     path: "/",
     maxAge: 60 * 60 * 24 * 14,
   });

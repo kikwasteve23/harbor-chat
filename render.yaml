@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: harbor-chat
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_BACKEND
+        value: postgres
+      - key: APP_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: AI_PROVIDER
+        value: mock
+      - key: DEMO_ADMIN_EMAIL
+        value: admin@harbor.local
+      - key: DEMO_ADMIN_PASSWORD
+        sync: false
+      - key: DEMO_USER_EMAIL
+        value: demo@harbor.local
+      - key: DEMO_USER_PASSWORD
+        sync: false
