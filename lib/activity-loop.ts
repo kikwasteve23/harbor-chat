@@ -3,7 +3,7 @@ let started = false;
 export function startActivityLoop() {
   if (started) return;
   started = true;
-  const tickMs = 20_000;
+  const tickMs = 4_000;
   const run = async () => {
     try {
       const { bootstrapIfNeeded } = await import("./bootstrap");

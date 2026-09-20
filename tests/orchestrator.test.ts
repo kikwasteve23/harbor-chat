@@ -36,6 +36,7 @@ function state(partial: Partial<RoomConversationState> = {}): RoomConversationSt
     unresolvedQuestions: [],
     topicHistory: ["t1"],
     displayedOnlineCount: 82,
+    nextChatAt: null,
     updatedAt: new Date().toISOString(),
     ...partial,
   };

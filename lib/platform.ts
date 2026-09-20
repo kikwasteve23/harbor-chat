@@ -21,7 +21,7 @@ import {
 } from "./services/orchestrator";
 import { parsePersonaWorkbook, toPoolRecords } from "./services/persona-import";
 import { eligiblePoolRecords, pickUniquePersonas } from "./services/persona-import";
-import { floorOnlineCount, nextDisplayedOnline } from "./services/presence";
+import { floorOnlineCount, nextDisplayedOnline, randomChatDelayMs } from "./services/presence";
 import type {
   AiPersona,
   KnowledgeChunk,
@@ -455,6 +455,7 @@ function ensureRoomPersonas(roomId: string) {
         unresolvedQuestions: [],
         topicHistory: topic ? [topic.id] : [],
         displayedOnlineCount: 70 + Math.floor(Math.random() * 28),
+        nextChatAt: new Date(Date.now() + randomChatDelayMs(3_000, 20_000)).toISOString(),
         updatedAt: nowIso(),
       });
     }
@@ -795,16 +796,79 @@ export async function expandLiveCommunity() {
       if (!conv.displayedOnlineCount || conv.displayedOnlineCount < 70) {
         conv.displayedOnlineCount = 70 + Math.floor(Math.random() * 25);
       }
+      if (!conv.nextChatAt) {
+        conv.nextChatAt = new Date(Date.now() + randomChatDelayMs(2_000, 15_000)).toISOString();
+      }
     }
   });
+}
+
+function scheduleNextChat(roomId: string) {
+  const settings = getSettings();
+  const delay = randomChatDelayMs(settings.chatIntervalMinMs ?? 0, settings.chatIntervalMaxMs ?? 120_000);
+  const at = new Date(Date.now() + delay).toISOString();
+  mutateStore((s) => {
+    const conv = s.conversation.find((c) => c.roomId === roomId);
+    if (conv) {
+      conv.nextChatAt = at;
+      conv.updatedAt = nowIso();
+    }
+  });
+  return delay;
+}
+
+async function emitAmbientMessage(roomId: string) {
+  ensureRoomPersonas(roomId);
+  const s = loadStore();
+  const typingCount = s.typing.filter((t) => t.roomId === roomId).length;
+  if (typingCount >= 2) {
+    scheduleNextChat(roomId);
+    return;
+  }
+  const lastAi = s.messages.filter((m) => m.roomId === roomId && m.senderAiPersonaId).at(-1)?.senderAiPersonaId;
+  const candidates = s.assignments.filter((a) => a.roomId === roomId && !a.activeUntil && a.presence !== "offline");
+  const rotated = candidates.filter((a) => a.personaId !== lastAi);
+  const pool = rotated.length ? rotated : candidates;
+  if (!pool.length) {
+    scheduleNextChat(roomId);
+    return;
+  }
+  const assignment = pool[Math.floor(Math.random() * pool.length)]!;
+  const persona = s.aiPersonas.find((p) => p.id === assignment.personaId);
+  if (!persona) {
+    scheduleNextChat(roomId);
+    return;
+  }
+  const text = await generatePersonaReply({
+    roomId,
+    persona,
+    intent: "respond",
+  });
+  await emitAiMessage(roomId, persona.id, text, "ambient");
+  scheduleNextChat(roomId);
 }
 
 export async function tickActivity() {
   wanderPresence();
   const s = loadStore();
+  const now = Date.now();
+  if (s.settings.chatIntervalMaxMs == null) {
+    mutateStore((st) => {
+      st.settings.chatIntervalMinMs = 0;
+      st.settings.chatIntervalMaxMs = 120_000;
+    });
+  }
   for (const room of s.rooms.filter((r) => r.isActive)) {
+    const conv = loadStore().conversation.find((c) => c.roomId === room.id);
+    if (!conv) continue;
+    const due = !conv.nextChatAt || new Date(conv.nextChatAt).getTime() <= now;
+    if (!due) continue;
+    mutateStore((st) => {
+      const c = st.conversation.find((x) => x.roomId === room.id);
+      if (c) c.nextChatAt = new Date(now + 120_000).toISOString();
+    });
     enqueue(room.id, async () => {
-      await runOrchestration(room.id, "tick");
+      await emitAmbientMessage(room.id);
     });
   }
 }

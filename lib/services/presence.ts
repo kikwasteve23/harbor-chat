@@ -13,3 +13,9 @@ export function nextDisplayedOnline(current: number, humansOnline: number, rng: 
 export function floorOnlineCount(count: number) {
   return Math.max(MIN_DISPLAYED_ONLINE, Math.floor(count || 0));
 }
+
+export function randomChatDelayMs(minMs: number, maxMs: number, rng: () => number = Math.random) {
+  const lo = Math.max(0, Math.min(minMs, maxMs));
+  const hi = Math.max(minMs, maxMs);
+  return Math.floor(lo + rng() * (hi - lo + 1));
+}

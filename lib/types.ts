@@ -161,6 +161,7 @@ export interface RoomConversationState {
   unresolvedQuestions: string[];
   topicHistory: string[];
   displayedOnlineCount: number;
+  nextChatAt: string | null;
   updatedAt: string;
 }
 
@@ -229,6 +230,8 @@ export interface PlatformSettings {
   personaImportConfirmed: boolean;
   minDisplayedOnline: number;
   maxDisplayedOnline: number;
+  chatIntervalMinMs: number;
+  chatIntervalMaxMs: number;
 }
 
 export interface PersonaMemory {
@@ -314,4 +317,6 @@ export const defaultSettings = (): PlatformSettings => ({
   personaImportConfirmed: false,
   minDisplayedOnline: 70,
   maxDisplayedOnline: 148,
+  chatIntervalMinMs: 0,
+  chatIntervalMaxMs: 120_000,
 });
